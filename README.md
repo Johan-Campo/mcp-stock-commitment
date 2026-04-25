@@ -96,3 +96,14 @@ Dos capas independientes: en el código, la primera instrucción de cada tool ve
 **¿Qué incluirías en los logs de auditoría y cómo los protegerías?**
 
 Cada entrada registra: fecha y hora, identidad del agente, herramienta ejecutada, parámetros de entrada, resultado, duración y un hash encadenado con la entrada anterior. No se registran datos personales del usuario final. La protección viene de escribir en modo append-only y enviar los logs en tiempo real a un sistema externo inmutable, de forma que ni el propio servidor pueda modificarlos después.
+
+## Resultado esperado
+
+Al ejecutar `npm start` se simula el flujo completo:
+
+1. El agente orquestador recibe la pregunta y extrae las entidades (`sku`, `quantity`, `client_name`)
+2. El servidor MCP valida permisos y sanitiza los inputs
+3. La tool ejecuta el cálculo ATP en modo solo lectura
+4. Detecta que la única orden confiable (400 uds, GLOBAL-SUPPLY) tiene fecha vencida sin recibirse
+5. Registra la inconsistencia en auditoría
+6. Devuelve `INCONSISTENT_DATA` con `commitment_date: null` — el sistema no puede comprometer una fecha basada en datos desactualizados y escala a validación humana
