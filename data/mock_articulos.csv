@@ -1,0 +1,16 @@
+SKU,Descripcion,Obsoleto
+ZAP-001,Zapato Profesional de Seguridad,false
+ZAP-002,Bota de Agua Industrial,false
+ZAP-003,Zapato Elegante Caballero,false
+ACC-452,Accesorio de Protección Lumbar,true
+ACC-101,Guantes de Nitrilo (Caja 100),false
+ACC-202,Gafas de Protección UV,false
+ZAP-999,Modelo Antiguo de Prueba,true
+HER-001,Martillo Percutor Pro,false
+HER-002,Taladro Inalámbrico 18V,false
+HER-003,Destornillador Eléctrico,true
+ROPA-01,Chaqueta Reflectante Alta Visibilidad,false
+ROPA-02,Pantalón de Trabajo Reforzado,false
+LIM-01,Kit de Limpieza Industrial,false
+LIM-02,Detergente Bio-Degradable,true
+OFF-01,Silla Ergonómica Oficina,false

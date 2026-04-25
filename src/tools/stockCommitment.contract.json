@@ -1,0 +1,224 @@
+{
+  "name": "stockCommitment",
+  "version": "1.0.0",
+  "description": "Determina cuándo es posible comprometer una cantidad específica de un producto para un cliente, consultando el stock actual y las órdenes de compra confirmadas. Implementa la lógica Available-to-Promise (ATP) del ERP. Usa esta herramienta cuando el usuario pregunte sobre disponibilidad, fechas de entrega o si se puede surtir un pedido.",
+
+  "when_to_use": [
+    "El usuario pregunta cuándo puede recibir o entregar un producto",
+    "El usuario pregunta si hay stock suficiente de un artículo para un pedido",
+    "El usuario pregunta la fecha estimada de disponibilidad de un SKU",
+    "Se necesita confirmar si un pedido puede comprometerse antes de crearlo en el ERP"
+  ],
+
+  "when_not_to_use": [
+    "El usuario solo pregunta el precio o características del producto (no involucra stock)",
+    "La pregunta es sobre historial de ventas o estadísticas pasadas",
+    "Se necesita crear, modificar o cancelar un pedido (esta tool es de solo lectura)",
+    "La pregunta es sobre proveedores o condiciones de compra"
+  ],
+
+  "inputSchema": {
+    "type": "object",
+    "required": ["sku", "quantity", "client_name"],
+    "additionalProperties": false,
+    "properties": {
+      "sku": {
+        "type": "string",
+        "description": "Código único del producto en el ERP. Solo letras mayúsculas, números y guiones. Ejemplos válidos: 'ZAP-001', 'ACC-101', 'HER-002'.",
+        "pattern": "^[A-Z0-9\\-]{1,20}$",
+        "examples": ["ZAP-001", "ACC-101", "HER-002"]
+      },
+      "quantity": {
+        "type": "integer",
+        "description": "Número de unidades requeridas. Debe ser un entero positivo mayor que cero.",
+        "minimum": 1,
+        "maximum": 1000000,
+        "examples": [500, 100, 50]
+      },
+      "client_name": {
+        "type": "string",
+        "description": "Nombre del cliente tal como aparece en el ERP. Solo caracteres alfanuméricos y espacios.",
+        "minLength": 1,
+        "maxLength": 100,
+        "examples": ["GARCIA SA", "ACME SL", "DISTRIBUCIONES NORTE"]
+      }
+    }
+  },
+
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": {
+        "type": "string",
+        "description": "Estado del resultado ATP. Ver 'status_definitions' para la interpretación de cada valor.",
+        "enum": [
+          "AVAILABLE",
+          "COMMITTABLE",
+          "INCONSISTENT_DATA",
+          "INSUFFICIENT",
+          "PRODUCT_NOT_FOUND",
+          "PRODUCT_OBSOLETE",
+          "VALIDATION_ERROR",
+          "ACCESS_DENIED"
+        ]
+      },
+      "commitment_date": {
+        "type": ["string", "null"],
+        "description": "Fecha ISO 8601 en la que se puede garantizar la disponibilidad completa. Null si no se puede determinar una fecha confiable.",
+        "format": "date"
+      },
+      "stock_disponible_actual": {
+        "type": "integer",
+        "description": "Unidades disponibles hoy en almacenes no restringidos."
+      },
+      "stock_reservado": {
+        "type": "integer",
+        "description": "Unidades en almacenes restringidos (ALM-RESERVADO). No comprometibles sin autorización."
+      },
+      "timeline": {
+        "type": "array",
+        "description": "Línea de tiempo acumulativa de inventario. Cada paso muestra cómo crece el stock con cada reposición confiable.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "fecha":           { "type": "string" },
+            "evento":          { "type": "string" },
+            "cantidad_sumada": { "type": "integer" },
+            "acumulado":       { "type": "integer" },
+            "isPastDue":       { "type": "boolean" },
+            "inconsistencia":  { "type": ["string", "null"] }
+          }
+        }
+      },
+      "inconsistencias": {
+        "type": "array",
+        "description": "Órdenes confiables (CONFIRMADO/TRANSITO) con fecha de entrega ya vencida y aún no recibidas. Su presencia indica que los datos del ERP requieren validación manual.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "fecha_estimada": { "type": "string" },
+            "cantidad":       { "type": "integer" },
+            "estado":         { "type": "string" },
+            "proveedor":      { "type": "string" },
+            "detalle":        { "type": "string" }
+          }
+        }
+      },
+      "ordenes_no_confiables": {
+        "type": "array",
+        "description": "Órdenes en estado PENDIENTE o SOLICITADO. No se usan en el cálculo ATP pero se incluyen como contexto informativo."
+      },
+      "mensaje": {
+        "type": "string",
+        "description": "Explicación en lenguaje natural del resultado. Este campo es el que debe presentarse al usuario final."
+      },
+      "metadata": {
+        "type": "object",
+        "properties": {
+          "evaluated_at":   { "type": "string", "description": "Timestamp de evaluación ISO 8601." },
+          "schema_version": { "type": "string", "description": "Versión del esquema semántico usado." },
+          "agentId":        { "type": "string" }
+        }
+      }
+    }
+  },
+
+  "status_definitions": {
+    "AVAILABLE": {
+      "meaning": "El stock actual es suficiente para cubrir la demanda. Entrega posible de forma inmediata.",
+      "commitment_date": "Fecha de hoy",
+      "agent_action": "Informar al usuario que el pedido puede confirmarse de inmediato."
+    },
+    "COMMITTABLE": {
+      "meaning": "El stock actual es insuficiente, pero las órdenes de compra confirmadas (CONFIRMADO o TRANSITO) cubren la demanda en una fecha futura confiable.",
+      "commitment_date": "Fecha de la última orden necesaria para alcanzar la cantidad",
+      "agent_action": "Presentar al usuario la fecha de compromiso e indicar que depende de la llegada de reposiciones confirmadas."
+    },
+    "INCONSISTENT_DATA": {
+      "meaning": "Las órdenes que cubrirían la demanda tienen fechas de entrega ya vencidas y no han sido recibidas. Los datos del ERP no están actualizados.",
+      "commitment_date": "null — no puede emitirse sin validación",
+      "agent_action": "NO comprometer una fecha. Informar al usuario que hay inconsistencias en los datos y que se requiere validación manual con el proveedor antes de confirmar."
+    },
+    "INSUFFICIENT": {
+      "meaning": "Ni el stock actual ni las órdenes de compra confiables son suficientes para cubrir la cantidad solicitada.",
+      "commitment_date": "null",
+      "agent_action": "Informar al usuario que no es posible comprometer la cantidad solicitada con los datos actuales. Sugerir reducir la cantidad o consultar órdenes no confirmadas."
+    },
+    "PRODUCT_NOT_FOUND": {
+      "meaning": "El SKU no existe en el catálogo del ERP.",
+      "commitment_date": "null",
+      "agent_action": "Informar que el producto no existe. No inferir ni sugerir SKUs alternativos sin confirmación del usuario."
+    },
+    "PRODUCT_OBSOLETE": {
+      "meaning": "El SKU existe pero está marcado como obsoleto. No puede comprometerse stock de productos fuera de catálogo.",
+      "commitment_date": "null",
+      "agent_action": "Informar que el producto fue descatalogado. Si corresponde, preguntar al usuario si desea buscar un producto sustituto."
+    },
+    "VALIDATION_ERROR": {
+      "meaning": "Los parámetros de entrada no superaron la validación de seguridad (formato inválido, posible inyección, cantidad negativa, etc.).",
+      "commitment_date": "null",
+      "agent_action": "Revisar el campo 'errors' para identificar el problema. Corregir el input antes de reintentar."
+    },
+    "ACCESS_DENIED": {
+      "meaning": "El agente que invocó la tool no tiene los permisos RBAC necesarios para esta consulta.",
+      "commitment_date": "null",
+      "agent_action": "No reintentar. Escalar al administrador del sistema para revisar los permisos del agente."
+    }
+  },
+
+  "error_handling": {
+    "retry_policy": {
+      "retryable_statuses": [],
+      "non_retryable_statuses": [
+        "PRODUCT_NOT_FOUND",
+        "PRODUCT_OBSOLETE",
+        "VALIDATION_ERROR",
+        "ACCESS_DENIED"
+      ],
+      "note": "Esta tool es determinista con los datos actuales. Reintentar sin cambiar el input no producirá un resultado diferente. Solo reintentar si los datos del ERP han sido actualizados."
+    },
+    "on_empty_result": "Si la tool devuelve stock_disponible_actual = 0 Y commitment_date = null, el agente debe responder que el producto existe pero no hay disponibilidad confirmable. NUNCA inventar una fecha.",
+    "on_inconsistent_data": "Ante status INCONSISTENT_DATA, el agente debe escalar a intervención humana y NO emitir una fecha de entrega al usuario."
+  },
+
+  "examples": [
+    {
+      "description": "Consulta estándar — cantidad supera el stock actual pero hay reposición futura",
+      "input": {
+        "sku": "ZAP-001",
+        "quantity": 500,
+        "client_name": "GARCIA SA"
+      },
+      "expected_status": "INCONSISTENT_DATA",
+      "note": "Con fecha 2026-04-24, la única orden confiable (400 uds, 2026-04-15) está vencida. El sistema no puede emitir fecha."
+    },
+    {
+      "description": "Cantidad menor al stock actual — entrega inmediata",
+      "input": {
+        "sku": "ZAP-001",
+        "quantity": 100,
+        "client_name": "BETA SL"
+      },
+      "expected_status": "AVAILABLE",
+      "note": "175 uds disponibles > 100 solicitadas."
+    },
+    {
+      "description": "Producto obsoleto — rechazo inmediato",
+      "input": {
+        "sku": "ZAP-999",
+        "quantity": 5,
+        "client_name": "DELTA SA"
+      },
+      "expected_status": "PRODUCT_OBSOLETE"
+    },
+    {
+      "description": "SKU inexistente — distingue de sin stock",
+      "input": {
+        "sku": "XXX-000",
+        "quantity": 10,
+        "client_name": "GAMMA SL"
+      },
+      "expected_status": "PRODUCT_NOT_FOUND"
+    }
+  ]
+}

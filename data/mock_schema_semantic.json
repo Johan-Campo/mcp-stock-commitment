@@ -1,0 +1,29 @@
+{
+  "semantic_layer": {
+    "version": "1.0.0",
+    "mappings": [
+      {
+        "technical_name": "STK_ACT_01",
+        "semantic_name": "stock_actual",
+        "description": "Cantidad física disponible en el almacén principal",
+        "type": "decimal"
+      },
+      {
+        "technical_name": "PUR_DATE_EXP",
+        "semantic_name": "fecha_esperada_reposicion",
+        "description": "Fecha en la que el proveedor ha confirmado la entrega de mercancía",
+        "type": "date"
+      },
+      {
+        "technical_name": "CLIENT_ID_ERP",
+        "semantic_name": "id_cliente",
+        "description": "Identificador único del cliente en el sistema ERP central",
+        "type": "integer"
+      }
+    ],
+    "policies": {
+      "mask_pii": true,
+      "read_only_default": true
+    }
+  }
+}
